@@ -28,7 +28,6 @@ jobs:
       - name: Run X Watcher
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          X_TARGET_USERNAME: ${{ secrets.X_TARGET_USERNAME }}
         run: python x_watcher.py
 
       - name: Commit and push changes
@@ -36,5 +35,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add watched_tweets.json
-          # 変更がある場合のみコミット＆プッシュする（未コミットの競合を防ぐ）
           git diff --staged --quiet || (git commit -m "Update watched tweets state" && git push origin main)
