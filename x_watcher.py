@@ -1,13 +1,11 @@
 import os
 import json
-import feedparser
 import requests
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# 監視したい店舗アカウント（例：GibsonJapan や 楽器店のアカウント）
-TARGET_USERNAME = "GibsonJapan" 
+TARGET_USERNAME = "GibsonJapan"
 STATE_FILE = "watched_tweets.json"
-KEYWORDS = ["gibson", "ギブソン", "tak", "レスポール", "les paul"]
+KEYWORDS = ["gibson", "ギブソン", "tak", "レスポール"]
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -22,65 +20,75 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-def send_discord(tweet):
+def send_discord(text, link):
     if not DISCORD_WEBHOOK_URL:
         return
     payload = {
-        "content": f"🚨 **【最速検知】新着ポスト検出**\n**@{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:250]}```"
+        "content": f"🚨 **【新着・最速検知】Gibson情報**\n🔗 {link}\n```{text[:300]}```"
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
-def fetch_tweets_via_rsshub(username):
-    # RSSHub等の公開パブリックインスタンスを利用して、純粋なツイートRSSを取得
-    # これによりプロフィールや余計なヘッダーが一切入らなくなります
-    rss_url = f"https://rsshub.app/twitter/user/{username}"
-    print(f"[DEBUG] RSS取得URL: {rss_url}")
+def fetch_and_parse():
+    # ツイートのやり取りやメディア、検索結果など、一番情報がダイレクトに出るURLを狙う
+    url = f"https://r.jina.ai/https://x.com/{TARGET_USERNAME}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers, timeout=15)
     
-    feed = feedparser.parse(rss_url)
-    parsed_tweets = []
-    
-    for entry in feed.entries:
-        # ツイートのユニークIDとリンク、本文をダイレクトに取得
-        t_id = entry.get("id", entry.get("link", ""))
-        text = entry.get("title", entry.get("summary", ""))
-        link = entry.get("link", "")
+    found_items = []
+    if response.status_code == 200:
+        content = response.text
+        blocks = content.split('\n\n')
         
-        if t_id and text:
-            parsed_tweets.append({
-                "id": t_id,
-                "author": username,
+        for block in blocks:
+            text = block.strip()
+            
+            # ノイズ（プロフィール紹介文、メニュー、画像リンク単体など）を完全に弾く
+            if len(text) < 35:
+                continue
+            if "1894年の創業から" in text or "公式アカウント" in text:
+                continue
+            if text.startswith("Title:") or text.startswith("URL Source:") or "![Image" in text:
+                continue
+                
+            # テキストの一部から一意なID（ハッシュ）を生成
+            item_id = f"{TARGET_USERNAME}_{abs(hash(text)) % 100000000}"
+            
+            found_items.append({
+                "id": str(item_id),
                 "text": text,
-                "link": link
+                "link": f"https://x.com/{TARGET_USERNAME}"
             })
             
-    return parsed_tweets
+    return found_items
 
 def main():
-    print("=== [DEBUG] X Watcher (RSSHub Direct Matcher) 起動 ===")
+    print("=== [DEBUG] X Watcher (Direct Clean Feed) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
-        tweets = fetch_tweets_via_rsshub(TARGET_USERNAME)
-        print(f"[DEBUG] 取得したツイート数: {len(tweets)} 件")
+        items = fetch_and_parse()
+        print(f"[DEBUG] 抽出されたクリーンな投稿候補: {len(items)} 件")
         
         new_seen_ids = list(seen_ids)
         
-        for tweet in tweets:
-            tweet_id = tweet["id"]
-            if tweet_id in seen_ids:
+        for item in items:
+            item_id = item["id"]
+            if item_id in seen_ids:
                 continue
             
-            text_lower = tweet["text"].lower()
+            text_lower = item["text"].lower()
+            # キーワードが完全に入っているものだけを通知
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] キーワード検出！ 通知送信: {tweet['link']}")
-                send_discord(tweet)
+                print(f"[MATCH] 目的のキーワードを検出！ 通知送信")
+                send_discord(item["text"], item["link"])
             
-            new_seen_ids.append(tweet_id)
+            # 一度処理したものは（ヒットしなくても）既読リストに入れて二度と読まないようにする
+            new_seen_ids.append(item_id)
             
         state["seen_ids"] = new_seen_ids[-500:]
     except Exception as e:
-        print(f"[ERROR] 取得または解析エラー: {e}")
+        print(f"[ERROR] エラー発生: {e}")
     finally:
         save_state(state)
         print("[DEBUG] 状態保存完了")
