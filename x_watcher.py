@@ -3,7 +3,7 @@ import json
 import requests
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# 監視対象のアカウント（例: GibsonJapan や 各店舗のID）
+# 監視対象のアカウント名（例: GibsonJapan や 各楽器店のID）
 TARGET_USERNAME = os.environ.get("X_TARGET_USERNAME", "GibsonJapan")
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン", "tak"]
@@ -30,40 +30,23 @@ def send_discord(tweet):
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
-def get_guest_token(session):
+def fetch_tweets(username):
+    # Xの公式ウィジェット（埋め込み）用APIエンドポイント（認証不要で高確率で取得可能）
+    url = f"https://cdn.syndication.twimg.com/v-1/timeline/profile?screen_name={username}"
     headers = {
-        "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    res = session.post("https://api.twitter.com/1.1/guest/activate.json", headers=headers, timeout=10)
+    res = requests.get(url, headers=headers, timeout=10)
     res.raise_for_status()
-    return res.json()["guest_token"]
-
-def fetch_tweets(session, username):
-    guest_token = get_guest_token(session)
-    headers = {
-        "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
-        "x-guest-token": guest_token,
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    data = res.json()
     
-    # ユーザー詳細から rest_id (数値ID) を取得
-    user_url = f"https://api.twitter.com/1.1/users/show.json?screen_name={username}"
-    res_user = session.get(user_url, headers=headers, timeout=10)
-    res_user.raise_for_status()
-    user_id = res_user.json()["id_str"]
-    user_name = res_user.json()["name"]
-
-    # ユーザーのタイムライン（最新ツイート）を取得
-    timeline_url = f"https://api.twitter.com/1.1/statuses/user_timeline.json?user_id={user_id}&count=20&tweet_mode=extended"
-    res_tl = session.get(timeline_url, headers=headers, timeout=10)
-    res_tl.raise_for_status()
-    
-    raw_tweets = res_tl.json()
     parsed_tweets = []
+    user_name = data.get("user", {}).get("name", username)
+    tweets_list = data.get("tweets", [])
     
-    for t in raw_tweets:
-        t_id = t["id_str"]
-        text = t.get("full_text", t.get("text", ""))
+    for t in tweets_list:
+        t_id = str(t.get("id_str", ""))
+        text = t.get("text", "")
         link = f"https://x.com/{username}/status/{t_id}"
         parsed_tweets.append({
             "id": t_id,
@@ -75,15 +58,13 @@ def fetch_tweets(session, username):
     return parsed_tweets
 
 def main():
-    print("=== [DEBUG] X Watcher (Direct Request) 起動 ===")
+    print("=== [DEBUG] X Watcher (Syndication API) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
-    session = requests.Session()
-    
     try:
         print(f"[DEBUG] アカウント @{TARGET_USERNAME} のツイートを取得中...")
-        tweets = fetch_tweets(session, TARGET_USERNAME)
+        tweets = fetch_tweets(TARGET_USERNAME)
         print(f"[DEBUG] 取得成功！ 件数: {len(tweets)} 件")
         
         if tweets:
@@ -110,7 +91,7 @@ def main():
     except Exception as e:
         print(f"[ERROR] 通信またはデータ解析エラー: {e}")
     finally:
-        # エラー発生時でも json ファイルが無いことによるコミット落ちを防止
+        # 例外時でも必ずファイルを保存し、Gitの未コミットエラーを防ぐ
         save_state(state)
         print("[DEBUG] 状態保存完了")
 
