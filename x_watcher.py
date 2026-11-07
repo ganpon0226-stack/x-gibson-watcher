@@ -32,26 +32,25 @@ def send_discord(tweet):
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
 def fetch_tweets_via_rss(username):
-    # 別のNitterインスタンス（nitter.privacydev.net）を利用する
-    rss_url = f"https://nitter.privacydev.net/{username}/rss"
-    print(f"[DEBUG] RSS取得URL: {rss_url}")
+    # より安定している別のパブリックRSSプロキシ経由で取得
+    rss_url = f"https://r.jina.ai/https://x.com/{username}"
+    print(f"[DEBUG] 取得URL: {rss_url}")
     
-    feed = feedparser.parse(rss_url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    response = requests.get(rss_url, headers=headers, timeout=15)
+    
     parsed_tweets = []
-    
-    for entry in feed.entries:
-        t_id = entry.get("id", entry.get("link", ""))
-        text = entry.get("title", "")
-        link = entry.get("link", "")
-        
-        # リンクを本家の x.com の形式に綺麗に置換
-        link = link.replace("nitter.privacydev.net", "x.com")
-        
+    if response.status_code == 200:
+        text_content = response.text
+        # 簡易的にテキスト行を解析、またはそのまま解析対象にする
+        # テキストの中にキーワードが含まれているかを直接判定できるようにリスト化します
         parsed_tweets.append({
-            "id": t_id,
+            "id": username + "_timeline",
             "author": username,
-            "text": text,
-            "link": link
+            "text": text_content,
+            "link": f"https://x.com/{username}"
         })
         
     return parsed_tweets
