@@ -32,7 +32,8 @@ def send_discord(tweet):
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
 def fetch_tweets_via_rss(username):
-    rss_url = f"https://rsshub.app/twitter/user/{username}"
+    # 安定しているNitterインスタンスのRSSフィードを利用する
+    rss_url = f"https://nitter.poast.org/{username}/rss"
     print(f"[DEBUG] RSS取得URL: {rss_url}")
     
     feed = feedparser.parse(rss_url)
@@ -43,6 +44,9 @@ def fetch_tweets_via_rss(username):
         text = entry.get("title", "")
         link = entry.get("link", "")
         
+        # リンクを本家の x.com の形式に綺麗に置換
+        link = link.replace("nitter.poast.org", "x.com")
+        
         parsed_tweets.append({
             "id": t_id,
             "author": username,
@@ -51,7 +55,7 @@ def fetch_tweets_via_rss(username):
         })
         
     return parsed_tweets
-
+    
 def main():
     print("=== [DEBUG] X Watcher (RSS Feed) 起動 ===")
     state = load_state()
