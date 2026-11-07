@@ -1,12 +1,22 @@
 import os
 import json
 import requests
-import re
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 TARGET_USERNAME = "GibsonJapan"
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン", "tak"]
+
+# プロフィールの定型文などを除外するためのキーワード
+EXCLUDE_WORDS = [
+    "1894年の創業から",
+    "世界的世界的ギターブランド",
+    "公式アカウント",
+    "profile_images",
+    "profile_banners",
+    "Markdown Content:",
+    "URL Source:"
+]
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -37,37 +47,36 @@ def fetch_tweets_via_proxy(username):
     parsed_tweets = []
     if response.status_code == 200:
         content = response.text
-        
-        # ページのテキストをブロックごとに分割
         blocks = content.split('\n\n')
         
-        # 各ブロックから「/status/数字」のツイート固有URLを探す
-        status_pattern = rf"https://x\.com/{username}/status/(\d+)"
-        
         for block in blocks:
-            match = re.search(status_pattern, block)
-            if match:
-                tweet_id = match.group(1)
-                tweet_link = f"https://x.com/{username}/status/{tweet_id}"
-                clean_text = block.strip()
+            clean_text = block.strip()
+            
+            # 短すぎるものや除外ワードが含まれるものはスキップ
+            if len(clean_text) < 30:
+                continue
+            if any(exc in clean_text for exc in EXCLUDE_WORDS):
+                continue
                 
-                parsed_tweets.append({
-                    "id": tweet_id,
-                    "author": username,
-                    "text": clean_text,
-                    "link": tweet_link
-                })
+            # ブログやツイートの塊ごとに固有IDを生成
+            t_id = f"{username}_{abs(hash(clean_text)) % 100000000}"
+            parsed_tweets.append({
+                "id": str(t_id),
+                "author": username,
+                "text": clean_text,
+                "link": f"https://x.com/{username}"
+            })
                 
     return parsed_tweets
 
 def main():
-    print("=== [DEBUG] X Watcher (True Tweet Matcher) 起動 ===")
+    print("=== [DEBUG] X Watcher (Flexible Block Matcher) 起動 ==.")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
         tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
-        print(f"[DEBUG] 抽出された個別ツイート数: {len(tweets)} 件")
+        print(f"[DEBUG] 抽出された有効な投稿ブロック数: {len(tweets)} 件")
         
         new_seen_ids = list(seen_ids)
         
@@ -78,7 +87,7 @@ def main():
             
             text_lower = tweet["text"].lower()
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] 新着ツイートのキーワード検出！ 通知送信: {tweet['link']}")
+                print(f"[MATCH] 新着のキーワード検出！ 通知送信")
                 send_discord(tweet)
             
             new_seen_ids.append(tweet_id)
