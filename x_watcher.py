@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import re
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 TARGET_USERNAME = "GibsonJapan"
@@ -24,7 +25,7 @@ def send_discord(tweet):
     if not DISCORD_WEBHOOK_URL:
         return
     payload = {
-        "content": f"🎸 **Gibson関連ポスト検出**\n**{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:200]}```"
+        "content": f"🎸 **Gibson新着ポスト検出**\n**{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:200]}```"
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
@@ -36,31 +37,37 @@ def fetch_tweets_via_proxy(username):
     parsed_tweets = []
     if response.status_code == 200:
         content = response.text
+        
+        # ページのテキストをブロックごとに分割
         blocks = content.split('\n\n')
         
-        for i, block in enumerate(blocks):
-            clean_text = block.strip()
-            # プロフィール文の定型句や画像リンク単体を除外し、一定の長さがある実のあるテキストに限定
-            if len(clean_text) > 30 and "1894年の創業から" not in clean_text and "![Image" not in clean_text:
-                # テキスト内容ベースの固有IDを生成
-                t_id = f"{username}_{abs(hash(clean_text)) % 100000000}"
+        # 各ブロックから「/status/数字」のツイート固有URLを探す
+        status_pattern = rf"https://x\.com/{username}/status/(\d+)"
+        
+        for block in blocks:
+            match = re.search(status_pattern, block)
+            if match:
+                tweet_id = match.group(1)
+                tweet_link = f"https://x.com/{username}/status/{tweet_id}"
+                clean_text = block.strip()
+                
                 parsed_tweets.append({
-                    "id": str(t_id),
+                    "id": tweet_id,
                     "author": username,
                     "text": clean_text,
-                    "link": f"https://x.com/{username}"
+                    "link": tweet_link
                 })
                 
     return parsed_tweets
 
 def main():
-    print("=== [DEBUG] X Watcher (Clean Text Matcher) 起動 ===")
+    print("=== [DEBUG] X Watcher (True Tweet Matcher) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
         tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
-        print(f"[DEBUG] 抽出された有効なブロック数: {len(tweets)} 件")
+        print(f"[DEBUG] 抽出された個別ツイート数: {len(tweets)} 件")
         
         new_seen_ids = list(seen_ids)
         
@@ -71,7 +78,7 @@ def main():
             
             text_lower = tweet["text"].lower()
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] キーワード検出！ 通知送信")
+                print(f"[MATCH] 新着ツイートのキーワード検出！ 通知送信: {tweet['link']}")
                 send_discord(tweet)
             
             new_seen_ids.append(tweet_id)
