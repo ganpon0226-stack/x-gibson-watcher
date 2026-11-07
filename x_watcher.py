@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import re
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 TARGET_USERNAME = "GibsonJapan"
@@ -36,27 +37,38 @@ def fetch_tweets_via_proxy(username):
     parsed_tweets = []
     if response.status_code == 200:
         content = response.text
-        # プロフィールの固定文などを除外するため、文字数が一定以上の実のあるブロックに絞る
+        
+        # ツイートのステータスURL（/status/数字）を抽出する正規表現
+        status_pattern = rf"https://x\.com/{username}/status/(\d+)"
+        
+        # ページ内のブロックごとに解析
         blocks = content.split('\n\n')
-        for i, block in enumerate(blocks):
-            block_str = block.strip()
-            # プロフィール文やUI共通パーツを除外し、ツイート本文らしきものに限定
-            if len(block_str) > 20 and "1894年の創業から" not in block_str:
-                t_id = f"{username}_{hash(block_str) % 10000000}"
+        for block in blocks:
+            match = re.search(status_pattern, block)
+            if match:
+                tweet_id = match.group(1)
+                tweet_link = f"https://x.com/{username}/status/{tweet_id}"
+                
+                # ヘッダーやナビゲーションを除外し、ツイート文が含まれるブロックのみ採用
+                clean_text = block.strip()
                 parsed_tweets.append({
-                    "id": str(t_id),
+                    "id": tweet_id,
                     "author": username,
-                    "text": block_str,
-                    "link": f"https://x.com/{username}"
+                    "text": clean_text,
+                    "link": tweet_link
                 })
+                
     return parsed_tweets
 
 def main():
+    print("=== [DEBUG] X Watcher (Tweet Status Matcher) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
         tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
+        print(f"[DEBUG] 抽出された有効なツイート数: {len(tweets)} 件")
+        
         new_seen_ids = list(seen_ids)
         
         for tweet in tweets:
@@ -66,15 +78,17 @@ def main():
             
             text_lower = tweet["text"].lower()
             if any(kw in text_lower for kw in KEYWORDS):
+                print(f"[MATCH] ポスト検出！ 通知送信: {tweet['link']}")
                 send_discord(tweet)
             
             new_seen_ids.append(tweet_id)
             
         state["seen_ids"] = new_seen_ids[-500:]
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"[ERROR] 取得または解析エラー: {e}")
     finally:
         save_state(state)
+        print("[DEBUG] 状態保存完了")
 
 if __name__ == "__main__":
     main()
