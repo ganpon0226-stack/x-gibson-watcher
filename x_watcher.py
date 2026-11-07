@@ -7,17 +7,6 @@ TARGET_USERNAME = "GibsonJapan"
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン", "tak"]
 
-# プロフィールの定型文などを除外するためのキーワード
-EXCLUDE_WORDS = [
-    "1894年の創業から",
-    "世界的世界的ギターブランド",
-    "公式アカウント",
-    "profile_images",
-    "profile_banners",
-    "Markdown Content:",
-    "URL Source:"
-]
-
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -49,16 +38,20 @@ def fetch_tweets_via_proxy(username):
         content = response.text
         blocks = content.split('\n\n')
         
-        for block in blocks:
+        # 【重要】ページ上部のプロフィールやヘッダーが含まれる最初の数ブロックを丸ごとスキップ
+        # 実際のツイートが並んでくる後ろ側のブロックだけを対象にします
+        target_blocks = blocks[4:] if len(blocks) > 4 else blocks
+        
+        for block in target_blocks:
             clean_text = block.strip()
             
-            # 短すぎるものや除外ワードが含まれるものはスキップ
+            # 「Title:」で始まるもの、短すぎるもの、メニュー系要素は除外
+            if clean_text.startswith("Title:") or clean_text.startswith("URL Source:"):
+                continue
             if len(clean_text) < 30:
                 continue
-            if any(exc in clean_text for exc in EXCLUDE_WORDS):
-                continue
                 
-            # ブログやツイートの塊ごとに固有IDを生成
+            # ツイート固有のハッシュIDを生成
             t_id = f"{username}_{abs(hash(clean_text)) % 100000000}"
             parsed_tweets.append({
                 "id": str(t_id),
@@ -70,13 +63,13 @@ def fetch_tweets_via_proxy(username):
     return parsed_tweets
 
 def main():
-    print("=== [DEBUG] X Watcher (Flexible Block Matcher) 起動 ==.")
+    print("=== [DEBUG] X Watcher (Profile Skip Mode) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
         tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
-        print(f"[DEBUG] 抽出された有効な投稿ブロック数: {len(tweets)} 件")
+        print(f"[DEBUG] 抽出された有効なツイート数: {len(tweets)} 件")
         
         new_seen_ids = list(seen_ids)
         
@@ -87,7 +80,7 @@ def main():
             
             text_lower = tweet["text"].lower()
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] 新着のキーワード検出！ 通知送信")
+                print(f"[MATCH] キーワード検出！ 通知送信")
                 send_discord(tweet)
             
             new_seen_ids.append(tweet_id)
