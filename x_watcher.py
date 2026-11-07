@@ -3,8 +3,7 @@ import json
 import requests
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# 作成したXの公開リストのURLをここに設定してください
-TARGET_LIST_URL = "https://x.com/i/lists/2119143672495460833"
+TARGET_LIST_URL = "https://x.com/あなたのサブ垢ID/lists/あなたのリスト名" # ご自身のリストURLに変更してください
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン", "tak", "レスポール", "les paul"]
 
@@ -30,7 +29,6 @@ def send_discord(text, link):
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
 def fetch_list_tweets():
-    # r.jina.ai を使ってXのリストページを綺麗にテキスト化して取得
     url = f"https://r.jina.ai/{TARGET_LIST_URL}"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers, timeout=15)
@@ -43,13 +41,11 @@ def fetch_list_tweets():
         for block in blocks:
             text = block.strip()
             
-            # 短すぎるものやUIパーツ系の文字列はスキップ
             if len(text) < 20:
                 continue
             if text.startswith("Title:") or text.startswith("URL Source:") or "![Image" in text:
                 continue
                 
-            # テキスト内容から一意なID（ハッシュ）を生成
             item_id = f"list_{abs(hash(text)) % 100000000}"
             
             found_items.append({
@@ -61,26 +57,36 @@ def fetch_list_tweets():
     return found_items
 
 def main():
-    print("=== [DEBUG] X Watcher (List Mode) 起動 ===")
+    print("=== [DEBUG] X Watcher (Debug Log Mode) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
         items = fetch_list_tweets()
-        print(f"[DEBUG] リストから取得した投稿ブロック数: {len(items)} 件")
+        print(f"[DEBUG] 取得された投稿ブロック数: {len(items)} 件")
+        
+        # 【デバッグ用】取得した全テキストをログに出力
+        for i, item in enumerate(items):
+            print(f"--- [BLOCK {i+1}] ---")
+            print(item["text"])
+            print("-" * 20)
         
         new_seen_ids = list(seen_ids)
         
         for item in items:
             item_id = item["id"]
             if item_id in seen_ids:
+                print(f"[SKIP] 既読IDのためスキップ: {item_id}")
                 continue
             
             text_lower = item["text"].lower()
-            # リスト内の投稿にキーワードが含まれているかチェック
+            print(f"[CHECK] キーワード照合中... テキスト一部: {item['text'][:50]}...")
+            
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] リスト内でキーワードを検出！ 通知送信")
+                print(f"🎉 [MATCH] キーワード検出！ 通知送信を実行します")
                 send_discord(item["text"], item["link"])
+            else:
+                print(f"[NO MATCH] キーワードに一致しませんでした")
             
             new_seen_ids.append(item_id)
             
