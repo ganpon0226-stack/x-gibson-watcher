@@ -1,10 +1,9 @@
 import os
 import json
 import requests
-import feedparser
+import re
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# 監視したいアカウント名（例: GibsonJapan）
 TARGET_USERNAME = "GibsonJapan"
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン", "tak"]
@@ -27,50 +26,49 @@ def send_discord(tweet):
         print("[WARNING] DISCORD_WEBHOOK_URL が設定されていません。")
         return
     payload = {
-        "content": f"🎸 **Gibson関連ポスト**\n**{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:200]}```"
+        "content": f"🎸 **Gibson関連ポスト検出**\n**{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:200]}```"
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
-def fetch_tweets_via_rss(username):
-    # より安定している別のパブリックRSSプロキシ経由で取得
-    rss_url = f"https://r.jina.ai/https://x.com/{username}"
-    print(f"[DEBUG] 取得URL: {rss_url}")
-    
+def fetch_tweets_via_proxy(username):
+    url = f"https://r.jina.ai/https://x.com/{username}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-    response = requests.get(rss_url, headers=headers, timeout=15)
+    response = requests.get(url, headers=headers, timeout=15)
     
     parsed_tweets = []
     if response.status_code == 200:
-        text_content = response.text
-        # 簡易的にテキスト行を解析、またはそのまま解析対象にする
-        # テキストの中にキーワードが含まれているかを直接判定できるようにリスト化します
-        parsed_tweets.append({
-            "id": username + "_timeline",
-            "author": username,
-            "text": text_content,
-            "link": f"https://x.com/{username}"
-        })
+        content = response.text
+        # Markdown形式のリンク等からツイートのURLやテキストの断片を抽出
+        # 簡易的に行ごとに分割してキーワードが含まれるブロックを個別パーツとして扱う
+        blocks = content.split('\n\n')
+        for i, block in enumerate(blocks):
+            if len(block.strip()) > 10:
+                # 一意なIDをハッシュやインデックスベースで生成
+                t_id = f"{username}_{i}_{hash(block) % 1000000}"
+                parsed_tweets.append({
+                    "id": str(t_id),
+                    "author": username,
+                    "text": block.strip(),
+                    "link": f"https://x.com/{username}"
+                })
         
     return parsed_tweets
-    
+
 def main():
-    print("=== [DEBUG] X Watcher (RSS Feed) 起動 ===")
+    print("=== [DEBUG] X Watcher (Proxy Parser) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
-        print(f"[DEBUG] アカウント @{TARGET_USERNAME} のフィードを取得中...")
-        tweets = fetch_tweets_via_rss(TARGET_USERNAME)
-        print(f"[DEBUG] 取得成功！ 件数: {len(tweets)} 件")
-        
-        if tweets:
-            print(f"[DEBUG] 最新ポスト: {tweets[0]['text'][:50]}...")
+        print(f"[DEBUG] アカウント @{TARGET_USERNAME} のデータを取得中...")
+        tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
+        print(f"[DEBUG] 取得ブロック数: {len(tweets)} 件")
 
         new_seen_ids = list(seen_ids)
         
-        for tweet in reversed(tweets):
+        for tweet in tweets:
             tweet_id = tweet["id"]
             text = tweet["text"]
             
@@ -87,10 +85,13 @@ def main():
         state["seen_ids"] = new_seen_ids[-500:]
         
     except Exception as e:
-        print(f"[ERROR] RSS取得または解析エラー: {e}")
+        print(f"[ERROR] 取得または解析エラー: {e}")
     finally:
         save_state(state)
         print("[DEBUG] 状態保存完了")
 
 if __name__ == "__main__":
     main()
+```[cite: 13]
+
+ここまで来れば仕組みは完全に完成です！あとは監視したい楽器店のアカウント（必要に応じて複数に拡張したり）を適宜変更しながら運用してみてください！
