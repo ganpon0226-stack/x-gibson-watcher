@@ -1,14 +1,10 @@
-
 import os
 import json
 import requests
 from ntscraper import Nitter
 
-# 設定
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 X_AUTH_TOKEN = os.environ.get("X_AUTH_TOKEN")
-# ご自身のリストIDやリストのURLを指定
-LIST_URL = os.environ.get("X_LIST_URL", "https://x.com/i/lists/YOUR_LIST_ID")
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン"]
 
@@ -31,33 +27,19 @@ def send_discord(tweet):
 def main():
     print("=== [DEBUG] X Watcher 起動 ===")
     
-    if not X_AUTH_TOKEN:
-        print("[ERROR] X_AUTH_TOKEN が設定されていません！")
-        return
-
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
-    # Nitterインスタンス（Cookieを渡して非公開リストにアクセス）
-    # ※ntscraperの仕様に合わせてセッションCookieを渡す設定
     scraper = Nitter(log_level=1)
     
     try:
-        print(f"[DEBUG] リスト取得を試行中: {LIST_URL}")
-        # 非公開リストをスクレイピングするためにauth_tokenを適用
-        # （ntscraperが内部でrequestsを使用しているため、Cookieヘッダーを注入）
-        headers = {"Cookie": f"auth_token={X_AUTH_TOKEN}"}
-        
-        # リストの最新ポストを取得
-        tweets_data = scraper.get_list_tweets(LIST_URL, number=20, extra_headers=headers)
+        print("[DEBUG] ツイート検索を試行中...")
+        # ntscraperの検索機能を使って「gibson」や店舗関連の最新ポストを横断検索するアプローチ
+        # （※リスト直指定ではなくキーワード横断で効率よく拾う形に変更）
+        tweets_data = scraper.get_tweets("gibson", mode="term", number=30)
         
         tweets = tweets_data.get("tweets", [])
         print(f"[DEBUG] 取得成功！ 取得件数: {len(tweets)} 件")
-        
-        if len(tweets) > 0:
-            print(f"[DEBUG] 最新のツイートサンプル: {tweets[0].get('text', '')[:50]}...")
-        else:
-            print("[WARNING] ツイートが0件です。リストURLやCookie（auth_token）が正しいか確認してください。")
 
         new_seen_ids = list(seen_ids)
         
@@ -84,7 +66,7 @@ def main():
         print("[DEBUG] 状態ファイル保存完了")
 
     except Exception as e:
-        print(f"[ERROR] リストの取得中にエラーが発生しました: {e}")
+        print(f"[ERROR] 処理中にエラーが発生しました: {e}")
 
 if __name__ == "__main__":
     main()
