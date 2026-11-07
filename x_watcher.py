@@ -1,11 +1,13 @@
 import os
 import json
+import feedparser
 import requests
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-TARGET_USERNAME = "GibsonJapan"
+# 監視したい店舗アカウント（例：GibsonJapan や 楽器店のアカウント）
+TARGET_USERNAME = "GibsonJapan" 
 STATE_FILE = "watched_tweets.json"
-KEYWORDS = ["gibson", "ギブソン", "tak"]
+KEYWORDS = ["gibson", "ギブソン", "tak", "レスポール", "les paul"]
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -24,52 +26,43 @@ def send_discord(tweet):
     if not DISCORD_WEBHOOK_URL:
         return
     payload = {
-        "content": f"🎸 **Gibson新着ポスト検出**\n**{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:200]}```"
+        "content": f"🚨 **【最速検知】新着ポスト検出**\n**@{tweet['author']}**: {tweet['link']}\n```{tweet['text'][:250]}```"
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
-def fetch_tweets_via_proxy(username):
-    url = f"https://r.jina.ai/https://x.com/{username}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers, timeout=15)
+def fetch_tweets_via_rsshub(username):
+    # RSSHub等の公開パブリックインスタンスを利用して、純粋なツイートRSSを取得
+    # これによりプロフィールや余計なヘッダーが一切入らなくなります
+    rss_url = f"https://rsshub.app/twitter/user/{username}"
+    print(f"[DEBUG] RSS取得URL: {rss_url}")
     
+    feed = feedparser.parse(rss_url)
     parsed_tweets = []
-    if response.status_code == 200:
-        content = response.text
-        blocks = content.split('\n\n')
+    
+    for entry in feed.entries:
+        # ツイートのユニークIDとリンク、本文をダイレクトに取得
+        t_id = entry.get("id", entry.get("link", ""))
+        text = entry.get("title", entry.get("summary", ""))
+        link = entry.get("link", "")
         
-        # 【重要】ページ上部のプロフィールやヘッダーが含まれる最初の数ブロックを丸ごとスキップ
-        # 実際のツイートが並んでくる後ろ側のブロックだけを対象にします
-        target_blocks = blocks[4:] if len(blocks) > 4 else blocks
-        
-        for block in target_blocks:
-            clean_text = block.strip()
-            
-            # 「Title:」で始まるもの、短すぎるもの、メニュー系要素は除外
-            if clean_text.startswith("Title:") or clean_text.startswith("URL Source:"):
-                continue
-            if len(clean_text) < 30:
-                continue
-                
-            # ツイート固有のハッシュIDを生成
-            t_id = f"{username}_{abs(hash(clean_text)) % 100000000}"
+        if t_id and text:
             parsed_tweets.append({
-                "id": str(t_id),
+                "id": t_id,
                 "author": username,
-                "text": clean_text,
-                "link": f"https://x.com/{username}"
+                "text": text,
+                "link": link
             })
-                
+            
     return parsed_tweets
 
 def main():
-    print("=== [DEBUG] X Watcher (Profile Skip Mode) 起動 ===")
+    print("=== [DEBUG] X Watcher (RSSHub Direct Matcher) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
-        tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
-        print(f"[DEBUG] 抽出された有効なツイート数: {len(tweets)} 件")
+        tweets = fetch_tweets_via_rsshub(TARGET_USERNAME)
+        print(f"[DEBUG] 取得したツイート数: {len(tweets)} 件")
         
         new_seen_ids = list(seen_ids)
         
@@ -80,7 +73,7 @@ def main():
             
             text_lower = tweet["text"].lower()
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] キーワード検出！ 通知送信")
+                print(f"[MATCH] キーワード検出！ 通知送信: {tweet['link']}")
                 send_discord(tweet)
             
             new_seen_ids.append(tweet_id)
