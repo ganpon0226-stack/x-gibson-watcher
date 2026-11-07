@@ -4,8 +4,8 @@ import requests
 import feedparser
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# ここに直接テストしたいアカウント名を入れる
-TARGET_USERNAME = "GibsonJapan" 
+# 監視したいアカウント名（例: GibsonJapan）
+TARGET_USERNAME = "GibsonJapan"
 STATE_FILE = "watched_tweets.json"
 KEYWORDS = ["gibson", "ギブソン", "tak"]
 
