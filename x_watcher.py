@@ -3,9 +3,10 @@ import json
 import requests
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-TARGET_USERNAME = "GibsonJapan"
+# 作成したXの公開リストのURLをここに設定してください
+TARGET_LIST_URL = "https://x.com/i/lists/2119143672495460833"
 STATE_FILE = "watched_tweets.json"
-KEYWORDS = ["gibson", "ギブソン", "tak", "レスポール"]
+KEYWORDS = ["gibson", "ギブソン", "tak", "レスポール", "les paul"]
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -24,13 +25,13 @@ def send_discord(text, link):
     if not DISCORD_WEBHOOK_URL:
         return
     payload = {
-        "content": f"🚨 **【新着・最速検知】Gibson情報**\n🔗 {link}\n```{text[:300]}```"
+        "content": f"🚨 **【リスト検知】Gibson・楽器情報**\n🔗 {link}\n```{text[:300]}```"
     }
     requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
-def fetch_and_parse():
-    # ツイートのやり取りやメディア、検索結果など、一番情報がダイレクトに出るURLを狙う
-    url = f"https://r.jina.ai/https://x.com/{TARGET_USERNAME}"
+def fetch_list_tweets():
+    # r.jina.ai を使ってXのリストページを綺麗にテキスト化して取得
+    url = f"https://r.jina.ai/{TARGET_LIST_URL}"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers, timeout=15)
     
@@ -42,33 +43,31 @@ def fetch_and_parse():
         for block in blocks:
             text = block.strip()
             
-            # ノイズ（プロフィール紹介文、メニュー、画像リンク単体など）を完全に弾く
-            if len(text) < 35:
-                continue
-            if "1894年の創業から" in text or "公式アカウント" in text:
+            # 短すぎるものやUIパーツ系の文字列はスキップ
+            if len(text) < 20:
                 continue
             if text.startswith("Title:") or text.startswith("URL Source:") or "![Image" in text:
                 continue
                 
-            # テキストの一部から一意なID（ハッシュ）を生成
-            item_id = f"{TARGET_USERNAME}_{abs(hash(text)) % 100000000}"
+            # テキスト内容から一意なID（ハッシュ）を生成
+            item_id = f"list_{abs(hash(text)) % 100000000}"
             
             found_items.append({
                 "id": str(item_id),
                 "text": text,
-                "link": f"https://x.com/{TARGET_USERNAME}"
+                "link": TARGET_LIST_URL
             })
             
     return found_items
 
 def main():
-    print("=== [DEBUG] X Watcher (Direct Clean Feed) 起動 ===")
+    print("=== [DEBUG] X Watcher (List Mode) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
-        items = fetch_and_parse()
-        print(f"[DEBUG] 抽出されたクリーンな投稿候補: {len(items)} 件")
+        items = fetch_list_tweets()
+        print(f"[DEBUG] リストから取得した投稿ブロック数: {len(items)} 件")
         
         new_seen_ids = list(seen_ids)
         
@@ -78,12 +77,11 @@ def main():
                 continue
             
             text_lower = item["text"].lower()
-            # キーワードが完全に入っているものだけを通知
+            # リスト内の投稿にキーワードが含まれているかチェック
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] 目的のキーワードを検出！ 通知送信")
+                print(f"[MATCH] リスト内でキーワードを検出！ 通知送信")
                 send_discord(item["text"], item["link"])
             
-            # 一度処理したものは（ヒットしなくても）既読リストに入れて二度と読まないようにする
             new_seen_ids.append(item_id)
             
         state["seen_ids"] = new_seen_ids[-500:]
