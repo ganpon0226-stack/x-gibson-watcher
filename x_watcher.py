@@ -1,7 +1,6 @@
 import os
 import json
 import requests
-import re
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 TARGET_USERNAME = "GibsonJapan"
@@ -37,37 +36,31 @@ def fetch_tweets_via_proxy(username):
     parsed_tweets = []
     if response.status_code == 200:
         content = response.text
-        
-        # ツイートのステータスURL（/status/数字）を抽出する正規表現
-        status_pattern = rf"https://x\.com/{username}/status/(\d+)"
-        
-        # ページ内のブロックごとに解析
         blocks = content.split('\n\n')
-        for block in blocks:
-            match = re.search(status_pattern, block)
-            if match:
-                tweet_id = match.group(1)
-                tweet_link = f"https://x.com/{username}/status/{tweet_id}"
-                
-                # ヘッダーやナビゲーションを除外し、ツイート文が含まれるブロックのみ採用
-                clean_text = block.strip()
+        
+        for i, block in enumerate(blocks):
+            clean_text = block.strip()
+            # プロフィール文の定型句や画像リンク単体を除外し、一定の長さがある実のあるテキストに限定
+            if len(clean_text) > 30 and "1894年の創業から" not in clean_text and "![Image" not in clean_text:
+                # テキスト内容ベースの固有IDを生成
+                t_id = f"{username}_{abs(hash(clean_text)) % 100000000}"
                 parsed_tweets.append({
-                    "id": tweet_id,
+                    "id": str(t_id),
                     "author": username,
                     "text": clean_text,
-                    "link": tweet_link
+                    "link": f"https://x.com/{username}"
                 })
                 
     return parsed_tweets
 
 def main():
-    print("=== [DEBUG] X Watcher (Tweet Status Matcher) 起動 ===")
+    print("=== [DEBUG] X Watcher (Clean Text Matcher) 起動 ===")
     state = load_state()
     seen_ids = set(state.get("seen_ids", []))
     
     try:
         tweets = fetch_tweets_via_proxy(TARGET_USERNAME)
-        print(f"[DEBUG] 抽出された有効なツイート数: {len(tweets)} 件")
+        print(f"[DEBUG] 抽出された有効なブロック数: {len(tweets)} 件")
         
         new_seen_ids = list(seen_ids)
         
@@ -78,7 +71,7 @@ def main():
             
             text_lower = tweet["text"].lower()
             if any(kw in text_lower for kw in KEYWORDS):
-                print(f"[MATCH] ポスト検出！ 通知送信: {tweet['link']}")
+                print(f"[MATCH] キーワード検出！ 通知送信")
                 send_discord(tweet)
             
             new_seen_ids.append(tweet_id)
