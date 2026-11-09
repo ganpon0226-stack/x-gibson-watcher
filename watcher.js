@@ -67,7 +67,7 @@ async function main() {
 
         // ★ 自動スクロール処理（3回スクロールしてタイムラインを読み込む）
         console.log('[SCROLL] タイムラインを下にスクロールして件数を増やします...');
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 5; i++) {
             await page.evaluate(() => window.scrollBy(0, 1000));
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
