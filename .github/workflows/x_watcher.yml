@@ -1,5 +1,31 @@
-- name: Run Watcher
+name: X List Watcher
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-watcher:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Watcher
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           X_COOKIES: ${{ secrets.X_COOKIES }}
         run: node watcher.js
+
+      - name: Commit and push changes (watched_tweets.json)
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-update watched tweets state"
+          file_pattern: watched_tweets.json
