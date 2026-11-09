@@ -3,7 +3,7 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const TARGET_LIST_URL = 'https://x.com/i/lists/2119143672495460833';
+const TARGET_LIST_URL = 'https://x.com/i/lists/2119143672495460833?s=20';
 const STATE_FILE = path.join(__dirname, 'watched_tweets.json');
 const KEYWORDS = ['gibson', 'ギブソン', 'tak', 'les paul', 'dc'];
 
