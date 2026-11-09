@@ -34,7 +34,7 @@ async function sendDiscord(text, link) {
 }
 
 async function main() {
-    console.log('=== Puppeteer X List Watcher (Cookie Auth + Auto Scroll) 起動 ===');
+    console.log('=== Puppeteer X List Watcher (Stable Load) 起動 ===');
     const state = loadState();
     let seenIds = new Set(state.seen_ids || []);
 
@@ -63,11 +63,21 @@ async function main() {
 
         console.log(`[NAVIGATE] リストへアクセス中: ${TARGET_LIST_URL}`);
         await page.goto(TARGET_LIST_URL, { waitUntil: 'networkidle2', timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        
+        // ★ 確実に最初のツイート要素がDOM上に現れるまで最大15秒待機する
+        console.log('[WAIT] ツイートの読み込みを待っています...');
+        try {
+            await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
+        } catch (e) {
+            console.log('[WARN] ツイート要素の待機がタイムアウトしましたが続行します');
+        }
+        
+        // 描画安定のためのわずかなバッファ
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // ★ 自動スクロール処理（3回スクロールしてタイムラインを読み込む）
-        console.log('[SCROLL] タイムラインを下にスクロールして件数を増やします...');
-        for (let i = 0; i < 7; i++) {
+        // 自動スクロール（件数を増やすため）
+        console.log('[SCROLL] タイムラインを下にスクロールして読み込み件数を増やします...');
+        for (let i = 0; i < 5; i++) {
             await page.evaluate(() => window.scrollBy(0, 1000));
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
@@ -114,7 +124,7 @@ async function main() {
             newSeenIds.push(tweet.id);
         }
 
-        state.seen_ids = newSeenIds.slice(-500);
+        state.seen_ids = newSeenIds.slice(-800);
         saveState(state);
 
     } catch (error) {
