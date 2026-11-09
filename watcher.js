@@ -34,7 +34,7 @@ async function sendDiscord(text, link) {
 }
 
 async function main() {
-    console.log('=== Puppeteer X List Watcher (Stable Load) 起動 ===');
+    console.log('=== Puppeteer X List Watcher (Top-First Extraction) 起動 ===');
     const state = loadState();
     let seenIds = new Set(state.seen_ids || []);
 
@@ -64,49 +64,62 @@ async function main() {
         console.log(`[NAVIGATE] リストへアクセス中: ${TARGET_LIST_URL}`);
         await page.goto(TARGET_LIST_URL, { waitUntil: 'networkidle2', timeout: 30000 });
         
-        // ★ 確実に最初のツイート要素がDOM上に現れるまで最大15秒待機する
-        console.log('[WAIT] ツイートの読み込みを待っています...');
+        console.log('[WAIT] 最新ツイートの読み込みを待っています...');
         try {
             await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
         } catch (e) {
-            console.log('[WARN] ツイート要素の待機がタイムアウトしましたが続行します');
+            console.log('[WARN] 待機タイムアウトしましたが続行します');
         }
         
-        // 描画安定のためのわずかなバッファ
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // 自動スクロール（件数を増やすため）
-        console.log('[SCROLL] タイムラインを下にスクロールして読み込み件数を増やします...');
-        for (let i = 0; i < 5; i++) {
-            await page.evaluate(() => window.scrollBy(0, 1000));
+        // ★修正：スクロールする前に「一番上の新鮮な状態」で一度ツイートを収集する！
+        const extractTweets = async () => {
+            return await page.evaluate(() => {
+                const results = [];
+                const articles = document.querySelectorAll('article[data-testid="tweet"]');
+                articles.forEach(article => {
+                    const textElement = article.querySelector('[data-testid="tweetText"]');
+                    const linkElement = article.querySelector('a[href*="/status/"]');
+
+                    if (textElement) {
+                        const text = textElement.innerText;
+                        const link = linkElement ? `https://x.com${linkElement.getAttribute('href')}` : '';
+                        const id = link || `hash_${text.substring(0, 30)}`;
+                        // 重複を防ぐため配列にまだなければ追加
+                        if (!results.some(r => r.id === id)) {
+                            results.push({ id, text, link });
+                        }
+                    }
+                });
+                return results;
+            });
+        };
+
+        console.log('[COLLECT] 1回目の取得（最上部の最新ツイート）...');
+        let allTweets = await extractTweets();
+
+        // その後、下にスクロールして過去分を少しずつ追加で拾う
+        console.log('[SCROLL] 下にスクロールして追加のツイートを読み込みます...');
+        for (let i = 0; i < 4; i++) {
+            await page.evaluate(() => window.scrollBy(0, 800));
             await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            const moreTweets = await extractTweets();
+            // 結合して重複を排除
+            for (const t of moreTweets) {
+                if (!allTweets.some(existing => existing.id === t.id)) {
+                    allTweets.push(t);
+                }
+            }
         }
 
-        // ツイート抽出
-        const tweets = await page.evaluate(() => {
-            const results = [];
-            const articles = document.querySelectorAll('article[data-testid="tweet"]');
-            
-            articles.forEach(article => {
-                const textElement = article.querySelector('[data-testid="tweetText"]');
-                const linkElement = article.querySelector('a[href*="/status/"]');
-
-                if (textElement) {
-                    const text = textElement.innerText;
-                    const link = linkElement ? `https://x.com${linkElement.getAttribute('href')}` : '';
-                    const id = link || `hash_${text.substring(0, 30)}`;
-                    results.push({ id, text, link });
-                }
-            });
-            return results;
-        });
-
-        console.log(`[DEBUG] 取得したツイート数: ${tweets.length} 件`);
+        console.log(`[DEBUG] 最終的に取得したユニークツイート数: ${allTweets.length} 件`);
 
         let newSeenIds = [...seenIds];
         let isFirstRun = seenIds.size === 0;
 
-        for (const tweet of tweets) {
+        for (const tweet of allTweets) {
             if (seenIds.has(tweet.id)) {
                 continue;
             }
