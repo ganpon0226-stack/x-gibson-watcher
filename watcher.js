@@ -3,7 +3,7 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const X_COOKIES_JSON = process.env.X_COOKIES; // GitHub SecretsからCookieを受け取る
+const X_COOKIES_JSON = process.env.X_COOKIES;
 const TARGET_LIST_URL = 'https://x.com/i/lists/2119143672495460833';
 const STATE_FILE = path.join(__dirname, 'watched_tweets.json');
 const KEYWORDS = ['gibson', 'ギブソン', 'tak', 'les paul', 'dc'];
@@ -34,7 +34,7 @@ async function sendDiscord(text, link) {
 }
 
 async function main() {
-    console.log('=== Puppeteer X List Watcher (Cookie Auth) 起動 ===');
+    console.log('=== Puppeteer X List Watcher (Cookie Auth + Auto Scroll) 起動 ===');
     const state = loadState();
     let seenIds = new Set(state.seen_ids || []);
 
@@ -47,11 +47,9 @@ async function main() {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     try {
-        // Cookieが設定されていればブラウザにインジェクトする
         if (X_COOKIES_JSON) {
             console.log('[AUTH] Cookieを適用してログイン状態を作ります');
             const cookies = JSON.parse(X_COOKIES_JSON);
-            // Puppeteerの形式に整形（domainなどが厳密な場合があるため調整）
             const formattedCookies = cookies.map(c => ({
                 name: c.name,
                 value: c.value,
@@ -61,15 +59,18 @@ async function main() {
                 httpOnly: c.httpOnly !== undefined ? c.httpOnly : false,
             }));
             await page.setCookie(...formattedCookies);
-        } else {
-            console.log('[WARN] X_COOKIESが設定されていません。ログインせずにアクセスします。');
         }
 
         console.log(`[NAVIGATE] リストへアクセス中: ${TARGET_LIST_URL}`);
         await page.goto(TARGET_LIST_URL, { waitUntil: 'networkidle2', timeout: 30000 });
-        
-        // タイムラインの読み込みをしっかり待つ
-        await new Promise(resolve => setTimeout(resolve, 7000));
+        await new Promise(resolve => setTimeout(resolve, 4000));
+
+        // ★ 自動スクロール処理（3回スクロールしてタイムラインを読み込む）
+        console.log('[SCROLL] タイムラインを下にスクロールして件数を増やします...');
+        for (let i = 0; i < 3; i++) {
+            await page.evaluate(() => window.scrollBy(0, 1000));
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
 
         // ツイート抽出
         const tweets = await page.evaluate(() => {
@@ -113,7 +114,7 @@ async function main() {
             newSeenIds.push(tweet.id);
         }
 
-        state.seen_ids = newSeenIds.slice(-300);
+        state.seen_ids = newSeenIds.slice(-500);
         saveState(state);
 
     } catch (error) {
