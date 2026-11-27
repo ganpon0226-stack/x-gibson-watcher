@@ -6,7 +6,17 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const X_COOKIES_JSON = process.env.X_COOKIES;
 const TARGET_LIST_URL = 'https://x.com/i/lists/2119143672495460833';
 const STATE_FILE = path.join(__dirname, 'watched_tweets.json');
-const KEYWORDS = ['gibson', 'ギブソン', 'tak', 'les paul', 'dc'];
+// const KEYWORDS = ['gibson', 'ギブソン', 'tak', 'les paul', 'dc'];
+const KEYWORDS = [
+    'gibson custom tak matsumoto dc',
+    'tak matsumoto',
+    'tak dc',
+    'takモデル',
+    'tak モデル',
+    '松本孝弘',
+    '松本 孝弘',
+    'translucent pink'
+];
 
 function loadState() {
     if (fs.existsSync(STATE_FILE)) {
